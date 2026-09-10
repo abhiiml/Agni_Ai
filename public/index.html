@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<!--
+  index.html — Interactive WebGL map dashboard (FR-UI-01..08)
+  -----------------------------------------------------------------------------
+  Renders the classified thermal-anomaly layer served by the FastAPI backend:
+    • Class 1 (industrial / flare)   → orange  #F59E0B
+    • Class 2 (wildfire / vegetation)→ red     #EF4444
+    • Class 3 (noise / unclassified) → gray    #9CA3AF
+  Markers scale with FRP; clicking a marker fills the sidebar inspector with
+  source metadata (FRP, brightness temp, spatial proximity, persistence and
+  classification confidence). MapLibre GL JS v4 is loaded from a pinned CDN —
+  there is no build step. No credential ever appears in this file (NFR-SEC-01).
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <script>
+    (function() {
+      // Ensure window.fetch has a defined setter so injected extension scripts
+      // attempting window.fetch = ... do not throw "Cannot set property fetch of #<Window> which has only a getter"
+      try {
+        var _curFetch = window.fetch ? window.fetch.bind(window) : null;
+        Object.defineProperty(window, "fetch", {
+          get: function() { return _curFetch; },
+          set: function(fn) { if (typeof fn === "function") _curFetch = fn; },
+          configurable: true,
+          enumerable: true
+        });
+      } catch (e1) {
+        try {
+          var proto = Object.getPrototypeOf(window);
+          if (proto) {
+            Object.defineProperty(proto, "fetch", {
+              get: function() { return _curFetch; },
+              set: function(fn) { if (typeof fn === "function") _curFetch = fn; },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        } catch (e2) {}
+      }
+      window.addEventListener("error", function(evt) {
+        if (evt && evt.message && evt.message.indexOf("Cannot set property fetch") !== -1) {
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+        }
+      });
+    })();
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AGNI-AI — India Industrial Heat &amp; Flare Detection</title>
+  <meta name="description" content="Automated Geospatial Network for Industrial Heat and Flare Detection across India" />
+  <meta property="og:title" content="AGNI-AI — India Industrial Heat &amp; Flare Detection" />
+  <meta property="og:description" content="Automated Geospatial Network for Industrial Heat and Flare Detection across India" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>" />
+  <!-- Pinned MapLibre GL JS v4 (jsdelivr CDN): WebGL map engine + styles -->
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    /* ---- Layout: full-viewport map with a fixed right-hand sidebar ---- */
+    html, body { margin: 0; height: 100%; font-family: "Segoe UI", system-ui, sans-serif; background: #0b1220; }
+    #map { position: absolute; inset: 0; }
+    #sidebar {
+      position: absolute; top: 0; right: 0; bottom: 0; width: 330px;
+      background: rgba(11, 18, 32, 0.92); color: #e5e9f0; z-index: 10;
+      display: flex; flex-direction: column; overflow-y: auto;
+      box-shadow: -4px 0 24px rgba(0, 0, 0, 0.45); backdrop-filter: blur(6px);
+    }
+    /* Header block with app title + LIVE/DEMO mode badge */
+    #sidebar header { padding: 14px 16px 10px; border-bottom: 1px solid #22304d; }
+    #sidebar header h1 { margin: 0; font-size: 15px; letter-spacing: 0.3px; }
+    #sidebar header p  { margin: 4px 0 0; font-size: 11px; color: #8aa0c4; }
+    #mode-badge {
+      display: inline-block; margin-top: 8px; padding: 2px 8px; border-radius: 10px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
+      background: #173cff22; color: #6ea8ff; border: 1px solid #2b5bd7;
+    }
+    #mode-badge.live { background: #20e07022; color: #5ee09a; border-color: #1f9d55; }
+    /* Generic section wrapper inside the sidebar */
+    .panel { padding: 12px 16px; border-bottom: 1px solid #1a2740; }
+    .panel h2 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #7d93bb; }
+    /* Summary chips: per-class counts with the class color */
+    #summary { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { flex: 1; min-width: 88px; text-align: center; border-radius: 8px; padding: 6px 4px;
+            background: #16213a; border: 1px solid #24324f; cursor: pointer; user-select: none; }
+    .chip .n { font-size: 17px; font-weight: 700; }
+    .chip .l { font-size: 9.5px; color: #8aa0c4; line-height: 1.3; }
+    .chip.off { opacity: 0.3; }
+    .chip.s1 .n { color: #f59e0b; } .chip.s2 .n { color: #ef4444; } .chip.s3 .n { color: #9ca3af; }
+    /* Filter controls (class toggle handled by .chip, FRP slider, dates) */
+    label.f { display: block; font-size: 10.5px; color: #8aa0c4; margin: 8px 0 2px; }
+    input[type="range"] { width: 100%; accent-color: #f59e0b; }
+    input[type="date"] { width: 100%; background: #0d1526; color: #e5e9f0; border: 1px solid #2a3a5c;
+                         border-radius: 6px; padding: 5px 7px; font-size: 12px; box-sizing: border-box; }
+    .row2 { display: flex; gap: 8px; }
+    .row2 > div { flex: 1; }
+    /* Buttons */
+    button { background: #f59e0b; color: #141414; border: 0; border-radius: 7px; padding: 8px 10px;
+             font-weight: 700; font-size: 12px; cursor: pointer; width: 100%; }
+    button:hover { filter: brightness(1.1); }
+    #status { font-size: 10.5px; color: #8aa0c4; margin-top: 8px; min-height: 14px; word-break: break-word; }
+    #status.err { color: #f87171; }
+    /* Inspector: populated on marker click (FR-UI-04) */
+    #inspector { display: none; }
+    #inspector .title { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+    .kv { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0;
+          border-bottom: 1px dashed #1a2740; font-size: 11.5px; }
+    .kv b { color: #8aa0c4; font-weight: 600; white-space: nowrap; }
+    .kv span { text-align: right; }
+    #close-inspector { background: none; color: #8aa0c4; border: 1px solid #2a3a5c; float: right;
+                       width: auto; padding: 1px 8px; font-size: 10px; }
+    .note { font-size: 10px; color: #6d82a8; margin-top: 8px; line-height: 1.45; }
+    /* Legend overlay at the map bottom-left */
+    #legend { position: absolute; left: 12px; bottom: 12px; z-index: 5; background: rgba(11,18,32,.85);
+              border-radius: 8px; padding: 8px 11px; font-size: 11px; color: #e5e9f0;
+              border: 1px solid #22304d; }
+    #legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    /* Empty-state overlay when filters match nothing (FR-UI-06) */
+    #empty { display: none; position: absolute; left: 50%; top: 40%; transform: translate(-50%,-50%);
+             z-index: 6; background: rgba(11,18,32,.95); padding: 18px 26px; border-radius: 10px;
+             border: 1px solid #22304d; text-align: center; }
+    .maplibregl-ctrl-attrib { font-size: 9px !important; background: rgba(11,18,32,.7) !important; }
+    /* Basemap layer switcher (Dark / Satellite / Street) */
+    .agni-basemap select {
+      background: #0d1526; color: #e5e9f0; border: 1px solid #2a3a5c;
+      border-radius: 6px; font-size: 11px; padding: 5px 6px; max-width: 170px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.35);
+    }
+    /* Anomaly marker popup (dark theme to match the dashboard) */
+    .maplibregl-popup-content {
+      background: #111823; color: #e5e9f0; border: 1px solid #2a3a5c;
+      border-radius: 8px; padding: 10px 12px; font-family: inherit;
+    }
+    .maplibregl-popup-tip { border-top-color: #111823 !important; }
+    .pop .pop-title { font-weight: 700; font-size: 12.5px; margin-bottom: 6px; }
+    .pop .pop-rows td { font-size: 11px; padding: 2px 0; color: #cdd7e6; }
+    .pop .pop-rows td:first-child { color: #8aa0c4; padding-right: 14px; white-space: nowrap; }
+  </style>
+</head>
+<body>
+
+  <!-- WebGL map mount point (MapLibre GL JS renders into this div) -->
+  <div id="map"></div>
+
+  <!-- Sidebar: header + mode badge + summary + filters + inspector -->
+  <aside id="sidebar">
+    <header>
+      <h1>🔥 AGNI-AI · Industrial Heat Detection</h1>
+      <p>NASA FIRMS × OSM footprints × spatiotemporal ML — India · SIH PS 26162 · NTRO</p>
+      <span id="mode-badge">LOADING</span>
+    </header>
+
+    <!-- Per-class summary chips (double as class visibility toggles) -->
+    <div class="panel">
+      <h2>KPI · Detections by class</h2>
+      <div id="summary">
+        <div class="chip s1" data-class="1" title="Gas flare / heavy industrial heat source">
+          <div class="n">–</div><div class="l">Industrial / Flare</div></div>
+        <div class="chip s2" data-class="2" title="Wildfire / vegetation fire">
+          <div class="n">–</div><div class="l">Wildfire</div></div>
+        <div class="chip s3" data-class="3" title="Thermal anomaly / agricultural noise">
+          <div class="n">–</div><div class="l">Noise / Unclass.</div></div>
+      </div>
+    </div>
+
+    <!-- Filters: min FRP slider + UTC date range (re-queried server-side) -->
+    <div class="panel">
+      <h2>Filters</h2>
+      <label class="f" for="frp">Min Fire Radiative Power: <span id="frp-val">0 MW</span></label>
+      <input type="range" id="frp" min="0" max="60" step="0.5" value="0" />
+      <div class="row2">
+        <div>
+          <label class="f" for="dfrom">From (UTC)</label>
+          <input type="date" id="dfrom" />
+        </div>
+        <div>
+          <label class="f" for="dto">To (UTC)</label>
+          <input type="date" id="dto" />
+        </div>
+      </div>
+      <button id="refresh" type="button">↻ Refresh data</button>
+      <div id="status"></div>
+    </div>
+
+    <!-- Inspector filled with metadata of the clicked anomaly (FR-UI-04) -->
+    <div class="panel" id="inspector">
+      <h2>Anomaly details <button id="close-inspector" type="button">✕</button></h2>
+      <div class="title" id="insp-title"></div>
+      <div id="insp-body"></div>
+      <div class="note">Persistence is a <b>lower bound</b>: cloud cover or missing
+        overpasses can hide detections on some days (SRS FR-PER-04).</div>
+    </div>
+
+    <div class="panel">
+      <h2>Source</h2>
+      <div id="meta" style="font-size:11px; color:#8aa0c4; line-height:1.6"></div>
+    </div>
+  </aside>
+
+  <!-- Map legend (always visible) -->
+  <div id="legend">
+    <div><span class="dot" style="background:#f59e0b"></span>Industrial / flare (Class 1)</div>
+    <div><span class="dot" style="background:#ef4444"></span>Wildfire / vegetation (Class 2)</div>
+    <div><span class="dot" style="background:#9ca3af"></span>Unclassified / noise (Class 3)</div>
+    <div style="color:#8aa0c4; margin-top:4px; font-size:10px">Marker size ∝ FRP (MW)</div>
+  </div>
+
+  <!-- Friendly empty state instead of a blank map (FR-UI-06) -->
+  <div id="empty"><b>No detections match the current filters.</b><br />
+    <span style="color:#8aa0c4; font-size:12px">Widen the date range or lower the FRP threshold.</span></div>
+
+  <!-- Pinned MapLibre GL JS runtime + the dashboard logic -->
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.min.js"></script>
+  <script>
+"use strict";
+
+// -----------------------------------------------------------------------------
+// Backend base URL — uses relative paths or active window origin
+// -----------------------------------------------------------------------------
+const API_BASE_URL = typeof window !== "undefined" && window.location && window.location.origin && window.location.origin.startsWith("http")
+  ? window.location.origin
+  : "";
+
+// -----------------------------------------------------------------------------
+// Dashboard state (module-level, read/written by every handler below)
+// -----------------------------------------------------------------------------
+const state = {
+  config: null,
+  summary: null,
+  geoJson: null,
+  visible: new Set([1, 2, 3]),
+  minFrp: 0,
+  dateFrom: "",
+  dateTo: "",
+  booted: false,
+};
+
+const CLASSES = {
+  1: { color: "#f59e0b", short: "Industrial / flare" },
+  2: { color: "#ef4444", short: "Wildfire" },
+  3: { color: "#9ca3af", short: "Noise / unclassified" },
+};
+const LAYER_IDS = ["anom-1", "anom-2", "anom-3"];
+
+let map = null;
+
+const $ = (id) => document.getElementById(id);
+const setStatus = (msg, isError = false) => {
+  const el = $("status");
+  if (el) {
+    el.textContent = msg;
+    el.className = isError ? "err" : "";
+  }
+};
+
+async function api(path, options) {
+  const url = `${API_BASE_URL}${path}`;
+  const resp = await fetch(url, options);
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    const detail = body.detail;
+    const msg = typeof detail === "object"
+      ? (detail.message || JSON.stringify(detail))
+      : (detail || `HTTP ${resp.status}`);
+    throw new Error(msg);
+  }
+  return body;
+}
+
+function emptyFC() {
+  return { type: "FeatureCollection", features: [] };
+}
+
+// -----------------------------------------------------------------------------
+// Basemap selection — resilient raster basemap
+// -----------------------------------------------------------------------------
+const ESRI_DARK_TILES =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
+const ESRI_SATELLITE_TILES =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const ESRI_STREET_TILES =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
+const OSM_RASTER_FALLBACK = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const BASEMAP_ATTRIBUTION =
+  'Tiles &copy; Esri &mdash; Esri, Maxar, Earthstar Geographics, USGS &middot; ' +
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+const BASEMAPS = {
+  dark:      { label: "🌙 Dark (default)", url: ESRI_DARK_TILES },
+  satellite: { label: "🛰 Satellite (Esri imagery)", url: ESRI_SATELLITE_TILES },
+  street:    { label: "🧭 Street (Esri road map)", url: ESRI_STREET_TILES },
+};
+
+class BasemapSwitcher {
+  onAdd(m) {
+    this._map = m;
+    this._container = document.createElement("div");
+    this._container.className = "maplibregl-ctrl agni-basemap";
+    const sel = document.createElement("select");
+    sel.setAttribute("aria-label", "Basemap layer");
+    Object.entries(BASEMAPS).forEach(([key, bm]) => {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = bm.label;
+      sel.appendChild(opt);
+    });
+    sel.value = "dark";
+    sel.addEventListener("change", () => this._apply(sel.value));
+    this._container.appendChild(sel);
+    return this._container;
+  }
+  _apply(key) {
+    const url = BASEMAPS[key] && BASEMAPS[key].url;
+    if (url && this._map.getSource("basemap")) this._map.getSource("basemap").setTiles([url]);
+  }
+  onRemove() {
+    if (this._container && this._container.parentNode) {
+      this._container.parentNode.removeChild(this._container);
+    }
+  }
+}
+
+function inlineRasterStyle(tiles) {
+  return {
+    version: 8,
+    sources: { basemap: { type: "raster", tiles: [tiles], tileSize: 256 } },
+    layers: [{ id: "basemap-layer", type: "raster", source: "basemap" }],
+  };
+}
+
+function ensureAnomalyLayers() {
+  if (map.getSource("anomalies")) return;
+  map.addSource("anomalies", { type: "geojson", data: emptyFC() });
+  [1, 2, 3].forEach((klass) => {
+    map.addLayer({
+      id: `anom-${klass}`,
+      type: "circle",
+      source: "anomalies",
+      filter: ["==", ["get", "class"], klass],
+      paint: {
+        "circle-color": CLASSES[klass].color,
+        "circle-opacity": 0.65,
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#0b1220",
+        "circle-radius": [
+          "interpolate", ["linear"], ["coalesce", ["get", "frp_mw"], 0],
+          0, 4, 10, 7, 25, 11, 50, 16, 150, 22,
+        ],
+      },
+    });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// In-Browser Resilient Fallback Data Generator (guarantees non-empty map)
+// -----------------------------------------------------------------------------
+function buildClientFallbackDataset() {
+  const plants = [
+    { name: "Jamnagar Petrochem Hub (demo)", lat: 22.32, lon: 69.96, count: 18, frpMin: 12, frpMax: 35 },
+    { name: "Dahej PCPIR Zone (demo)", lat: 21.68, lon: 72.76, count: 10, frpMin: 8, frpMax: 26 },
+    { name: "Paradip Refinery Hub (demo)", lat: 20.24, lon: 86.60, count: 12, frpMin: 15, frpMax: 38 },
+    { name: "Visakhapatnam Industrial Belt (demo)", lat: 17.69, lon: 83.28, count: 8, frpMin: 14, frpMax: 32 },
+  ];
+  const now = new Date();
+  const dStr = now.toISOString().slice(0, 10);
+  const prevDate = new Date(now.getTime() - 4 * 86400000).toISOString().slice(0, 10);
+  const features = [];
+  let seed = 123;
+  function rand() {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  }
+
+  // Industrial flares (Class 1)
+  plants.forEach((p) => {
+    for (let i = 0; i < p.count; i++) {
+      const lat = p.lat + (rand() * 0.04 - 0.02);
+      const lon = p.lon + (rand() * 0.04 - 0.02);
+      const frp = Math.round((p.frpMin + rand() * (p.frpMax - p.frpMin)) * 10) / 10;
+      const dayOffset = Math.floor(rand() * 5);
+      const acqD = new Date(now.getTime() - dayOffset * 86400000).toISOString().slice(0, 10);
+      features.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [lon, lat] },
+        properties: {
+          class: 1,
+          class_label: "Gas Flare / Heavy Industrial Heat Source",
+          confidence: Math.round((0.85 + rand() * 0.12) * 100) / 100,
+          frp_mw: frp,
+          brightness_temp_k: Math.round(345 + rand() * 25),
+          acq_date_utc: `${acqD}T${String(Math.floor(rand() * 24)).padStart(2, "0")}:15:00Z`,
+          satellite: rand() > 0.5 ? "NOAA-20" : "NPP",
+          instrument: "VIIRS",
+          source: "VIIRS_NOAA20_NRT",
+          daynight: rand() > 0.4 ? "N" : "D",
+          confidence_pct: 90,
+          proximity_m: Math.round(rand() * 450),
+          industry_name: p.name,
+          persistence_days: Math.floor(3 + rand() * 3),
+          persistence_score: 0.9,
+          latitude: lat,
+          longitude: lon,
+        }
+      });
+    }
+  });
+
+  // Wildfires (Class 2) across central India / MP
+  for (let j = 0; j < 20; j++) {
+    const lat = 20.80 + rand() * 3.5;
+    const lon = 77.50 + rand() * 4.2;
+    const frp = Math.round((14 + rand() * 45) * 10) / 10;
+    const dayOffset = Math.floor(rand() * 5);
+    const acqD = new Date(now.getTime() - dayOffset * 86400000).toISOString().slice(0, 10);
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [lon, lat] },
+      properties: {
+        class: 2,
+        class_label: "Wildfire / Vegetation Fire",
+        confidence: Math.round((0.75 + rand() * 0.2) * 100) / 100,
+        frp_mw: frp,
+        brightness_temp_k: Math.round(335 + rand() * 30),
+        acq_date_utc: `${acqD}T${String(Math.floor(rand() * 24)).padStart(2, "0")}:30:00Z`,
+        satellite: "NOAA-20",
+        instrument: "VIIRS",
+        source: "VIIRS_NOAA20_NRT",
+        daynight: "D",
+        confidence_pct: 85,
+        proximity_m: null,
+        industry_name: null,
+        persistence_days: 1,
+        persistence_score: 0.2,
+        latitude: lat,
+        longitude: lon,
+      }
+    });
+  }
+
+  // Stubble / Noise (Class 3)
+  for (let k = 0; k < 12; k++) {
+    const lat = 29.50 + rand() * 1.8;
+    const lon = 75.00 + rand() * 2.1;
+    const frp = Math.round((1.2 + rand() * 4.5) * 10) / 10;
+    const dayOffset = Math.floor(rand() * 5);
+    const acqD = new Date(now.getTime() - dayOffset * 86400000).toISOString().slice(0, 10);
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [lon, lat] },
+      properties: {
+        class: 3,
+        class_label: "Thermal Anomaly / Agricultural Noise",
+        confidence: 0.2,
+        frp_mw: frp,
+        brightness_temp_k: Math.round(310 + rand() * 15),
+        acq_date_utc: `${acqD}T${String(Math.floor(rand() * 24)).padStart(2, "0")}:45:00Z`,
+        satellite: "MODIS",
+        instrument: "MODIS",
+        source: "MODIS_NRT",
+        daynight: "D",
+        confidence_pct: 35,
+        proximity_m: null,
+        industry_name: null,
+        persistence_days: 1,
+        persistence_score: 0.2,
+        latitude: lat,
+        longitude: lon,
+      }
+    });
+  }
+
+  const c1 = features.filter(f => f.properties.class === 1).length;
+  const c2 = features.filter(f => f.properties.class === 2).length;
+  const c3 = features.filter(f => f.properties.class === 3).length;
+
+  return {
+    summary: {
+      total_detections: features.length,
+      window_days: 5,
+      date_min: prevDate,
+      date_max: dStr,
+      updated_at_utc: now.toISOString(),
+      industrial_count: plants.length,
+      demo_mode: true,
+      sources: ["VIIRS_NOAA20_NRT", "VIIRS_SNPP_NRT", "MODIS_NRT"],
+      by_class: {
+        "1": { count: c1 },
+        "2": { count: c2 },
+        "3": { count: c3 }
+      }
+    },
+    anomalies: { type: "FeatureCollection", features }
+  };
+}
+
+async function boot() {
+  try {
+    state.config = await api("/api/v1/config/public");
+  } catch (err) {
+    state.config = {
+      style_url: null,
+      tile_url: ESRI_DARK_TILES,
+      attribution: BASEMAP_ATTRIBUTION,
+      demo_mode: true,
+      window_days: 5,
+      default_center: [78.9629, 20.5937],
+      default_zoom: 5,
+    };
+  }
+
+  const [cx, cy] = state.config.default_center || [78.9629, 20.5937];
+  const zoom = state.config.default_zoom != null ? state.config.default_zoom : 5;
+  const style = state.config.style_url
+    ? state.config.style_url
+    : inlineRasterStyle(state.config.tile_url || ESRI_DARK_TILES);
+
+  map = new maplibregl.Map({
+    container: "map",
+    center: [cx, cy],
+    zoom,
+    attributionControl: false,
+    style,
+  });
+
+  map.addControl(new maplibregl.AttributionControl({
+    compact: false,
+    customAttribution: state.config.attribution,
+  }));
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
+  map.addControl(new BasemapSwitcher(), "top-left");
+
+  let basemapErrors = 0;
+  map.on("error", (e) => {
+    if (e.sourceId === "basemap") basemapErrors += 1;
+    const msg = String((e.error && e.error.message) || "");
+    const styleFailed = /style|fetch|network/i.test(msg) && !map.getSource("basemap");
+    if (!state.styleFallbackDone && (styleFailed || basemapErrors >= 3)) {
+      state.styleFallbackDone = true;
+      try { map.setStyle(inlineRasterStyle(OSM_RASTER_FALLBACK)); } catch (_) {}
+    }
+  });
+
+  map.on("load", async () => {
+    ensureAnomalyLayers();
+    if (!state.booted) {
+      state.booted = true;
+      map.on("mousemove", (e) => {
+        map.getCanvas().style.cursor =
+          map.queryRenderedFeatures(e.point, { layers: LAYER_IDS }).length ? "pointer" : "";
+      });
+      map.on("click", (e) => {
+        const hit = map.queryRenderedFeatures(e.point, { layers: LAYER_IDS })[0];
+        const props = hit ? hit.properties : null;
+        renderInspector(props);
+        if (props) showAnomalyPopup(props);
+      });
+      await loadData();
+      bindFilters();
+    }
+  });
+}
+
+async function loadData(dateFrom = state.dateFrom, dateTo = state.dateTo) {
+  setStatus("Querying thermal anomalies…");
+  try {
+    let summary, anomalies;
+    const qParts = [];
+    if (dateFrom) qParts.push(`date_from=${encodeURIComponent(dateFrom)}`);
+    if (dateTo) qParts.push(`date_to=${encodeURIComponent(dateTo)}`);
+    const qStr = qParts.length ? `?${qParts.join("&")}` : "";
+
+    try {
+      summary = await api("/api/v1/stats/summary");
+      anomalies = await api(`/api/v1/thermal-anomalies${qStr}`);
+    } catch (netErr) {
+      console.warn("API request fallback to built-in synthetic dataset:", netErr);
+      const fallback = buildClientFallbackDataset();
+      summary = fallback.summary;
+      anomalies = fallback.anomalies;
+    }
+
+    state.summary = summary;
+    state.geoJson = anomalies;
+
+    if (map && map.getSource("anomalies")) {
+      map.getSource("anomalies").setData(anomalies);
+      applyFilters();
+    }
+
+    if ($("dfrom") && !$("dfrom").value && summary.date_min) $("dfrom").value = summary.date_min;
+    if ($("dto") && !$("dto").value && summary.date_max) $("dto").value = summary.date_max;
+    state.dateFrom = $("dfrom") ? $("dfrom").value : "";
+    state.dateTo = $("dto") ? $("dto").value : "";
+
+    renderSummaryChips();
+    renderMeta();
+    const wDays = summary.observation_window_days || summary.window_days || 5;
+    setStatus(summary.total_detections
+      ? `Ready — ${summary.total_detections} detections across ${wDays} days`
+      : "No detections in the observation window");
+  } catch (err) {
+    setStatus(`Data unavailable — ${err.message}`, true);
+  }
+}
+
+function currentFilter(klass) {
+  const conds = [["==", ["get", "class"], klass]];
+  if (!state.visible.has(klass)) conds.push(["==", 1, 0]);
+  conds.push([">=", ["coalesce", ["get", "frp_mw"], -1], state.minFrp]);
+  if (state.dateFrom) conds.push([">=", ["get", "acq_date_utc"], `${state.dateFrom}T00:00:00`]);
+  if (state.dateTo) conds.push(["<=", ["get", "acq_date_utc"], `${state.dateTo}T23:59:59`]);
+  return ["all", ...conds];
+}
+
+function applyFilters() {
+  if (!map || !map.getSource("anomalies")) return;
+  [1, 2, 3].forEach((k) => {
+    if (map.getLayer(`anom-${k}`)) {
+      map.setFilter(`anom-${k}`, currentFilter(k));
+    }
+  });
+  const shown = state.geoJson
+    ? state.geoJson.features.filter((f) => featureMatches(f.properties)).length
+    : 0;
+  if ($("empty")) $("empty").style.display = shown ? "none" : "block";
+}
+
+function featureMatches(p) {
+  if (!state.visible.has(p.class)) return false;
+  if ((p.frp_mw == null ? -1 : p.frp_mw) < state.minFrp) return false;
+  if (state.dateFrom && p.acq_date_utc < `${state.dateFrom}T00:00:00`) return false;
+  if (state.dateTo && p.acq_date_utc > `${state.dateTo}T23:59:59`) return false;
+  return true;
+}
+
+function renderSummaryChips() {
+  if (!state.summary || !state.summary.by_class) return;
+  [1, 2, 3].forEach((k) => {
+    const c = state.summary.by_class[String(k)];
+    const el = document.querySelector(`.chip[data-class="${k}"]`);
+    if (el) {
+      const nEl = el.querySelector(".n");
+      if (nEl) nEl.textContent = c ? c.count : 0;
+    }
+  });
+}
+
+function renderMeta() {
+  if (!state.summary) return;
+  const s = state.summary;
+  if ($("meta")) {
+    $("meta").innerHTML =
+      `Updated: <b>${fmtTime(s.updated_at_utc)}</b><br>` +
+      `Industrial footprints: <b>${s.industrial_count}</b><br>` +
+      `Observation window: <b>${s.window_days} days</b> (${s.date_min} → ${s.date_max})<br>` +
+      `Sources: <b>${(s.sources || []).join(", ")}</b>`;
+  }
+  const badge = $("mode-badge");
+  if (badge) {
+    if (s.demo_mode) {
+      badge.textContent = "DEMO DATA";
+      badge.classList.remove("live");
+    } else {
+      badge.textContent = "LIVE · NASA FIRMS";
+      badge.classList.add("live");
+    }
+  }
+}
+
+const INSP_ROWS = [
+  ["Class", (p) => `${p.class} — ${p.class_label}`],
+  ["Confidence", (p) => `${(p.confidence * 100).toFixed(0)}%`],
+  ["FRP", (p) => `${p.frp_mw != null ? Number(p.frp_mw).toFixed(1) : "—"} MW`],
+  ["Brightness temp.", (p) => `${p.brightness_temp_k != null ? Number(p.brightness_temp_k).toFixed(1) : "—"} K`],
+  ["Acquired (UTC)", (p) => fmtTime(p.acq_date_utc)],
+  ["Satellite", (p) => `${p.satellite} / ${p.instrument}`],
+  ["Source", (p) => p.source],
+  ["Day / Night", (p) => (p.daynight === "N" ? "Night" : "Day")],
+  ["To nearest industry", (p) =>
+    p.proximity_m != null ? `${Math.round(p.proximity_m).toLocaleString()} m` : "far (> search radius)"],
+  ["Nearest site", (p) => p.industry_name || "—"],
+  ["Persistence", (p) => `${p.persistence_days}/` +
+    `${state.summary ? state.summary.window_days : "?"} days · score ${Number(p.persistence_score || 0).toFixed(2)}`],
+];
+
+function renderInspector(p) {
+  const panel = $("inspector");
+  if (!panel) return;
+  if (!p) { panel.style.display = "none"; return; }
+  const meta = CLASSES[p.class] || {};
+  if ($("insp-title")) {
+    $("insp-title").innerHTML =
+      `<span style="color:${meta.color}">●</span> ${p.class_label} ` +
+      `<small style="color:#8aa0c4">(class ${p.class})</small>`;
+  }
+  if ($("insp-body")) {
+    const rowsHtml = INSP_ROWS
+      .map(([label, fmt]) => `<div class="kv"><b>${label}</b><span>${fmt(p)}</span></div>`)
+      .join("");
+    const caveatHtml =
+      `<div style="margin-top:14px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid rgba(255,255,255,0.06);font-size:11px;line-height:1.4;color:#8aa0c4;">` +
+      `<em>Note: Satellite detections represent a cloud-cover lower bound. Persistence reflects available cloud-free observations within the window.</em>` +
+      `</div>`;
+    $("insp-body").innerHTML = rowsHtml + caveatHtml;
+  }
+  panel.style.display = "block";
+}
+
+function fmtTime(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+}
+
+function fmtCoord(value, pos, neg) {
+  const v = Number(value);
+  return `${Math.abs(v).toFixed(4)}° ${v < 0 ? neg : pos}`;
+}
+
+function showAnomalyPopup(p) {
+  const meta = CLASSES[p.class] || {};
+  const popup = new maplibregl.Popup({ offset: 28, closeButton: true, maxWidth: "300px" })
+    .setLngLat([Number(p.longitude), Number(p.latitude)])
+    .setHTML(
+      `<div class="pop">` +
+      `<div class="pop-title" style="color:${meta.color || "#fff"}">● ${p.class_label}</div>` +
+      `<table class="pop-rows">` +
+      `<tr><td>Latitude</td><td>${fmtCoord(p.latitude, "N", "S")}</td></tr>` +
+      `<tr><td>Longitude</td><td>${fmtCoord(p.longitude, "E", "W")}</td></tr>` +
+      `<tr><td>FRP</td><td>${p.frp_mw != null ? Number(p.frp_mw).toFixed(1) : "—"} MW</td></tr>` +
+      `<tr><td>Satellite</td><td>${p.satellite} / ${p.instrument} · ${p.source}</td></tr>` +
+      `<tr><td>Acquired (UTC)</td><td>${fmtTime(p.acq_date_utc)}</td></tr>` +
+      `<tr><td>Nearest OSM site</td><td>${p.industry_name || "—"}</td></tr>` +
+      `</table></div>`
+    )
+    .addTo(map);
+  if (window.__agniPopup && window.__agniPopup !== popup) window.__agniPopup.remove();
+  window.__agniPopup = popup;
+}
+
+function bindFilters() {
+  document.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const klass = Number(chip.dataset.class);
+      state.visible.has(klass) ? state.visible.delete(klass) : state.visible.add(klass);
+      chip.classList.toggle("off");
+      applyFilters();
+    });
+  });
+
+  if ($("frp")) {
+    $("frp").addEventListener("input", (e) => {
+      state.minFrp = Number(e.target.value);
+      if ($("frp-val")) $("frp-val").textContent = `${state.minFrp} MW`;
+      applyFilters();
+    });
+  }
+
+  if ($("dfrom")) {
+    $("dfrom").addEventListener("change", (e) => {
+      state.dateFrom = e.target.value;
+      loadData(state.dateFrom, state.dateTo);
+    });
+  }
+  if ($("dto")) {
+    $("dto").addEventListener("change", (e) => {
+      state.dateTo = e.target.value;
+      loadData(state.dateFrom, state.dateTo);
+    });
+  }
+
+  if ($("close-inspector")) $("close-inspector").addEventListener("click", () => renderInspector(null));
+
+  if ($("refresh")) {
+    $("refresh").addEventListener("click", async () => {
+      const btn = $("refresh");
+      btn.disabled = true;
+      setStatus("Refreshing data from providers…");
+      try {
+        const res = await api("/api/v1/refresh", { method: "POST" });
+        await loadData();
+        setStatus(`Data refreshed ✓ (${res.total_detections || 0} detections)`);
+      } catch (err) {
+        // FR-UI-05: surface 429 / 502 error messages verbatim
+        setStatus(err.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+}
+
+boot().catch((err) => setStatus(`Failed to load: ${err.message}`, true));
+  </script>
+</body>
+</html>

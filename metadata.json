@@ -1,0 +1,8 @@
+{
+  "name": "AGNI-AI",
+  "description": "Automated Geospatial Network for Industrial Heat and Flare Detection across India",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

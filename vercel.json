@@ -1,0 +1,9 @@
+{
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
+    { "source": "/healthz", "destination": "/api/index.js" },
+    { "source": "/favicon.ico", "destination": "/api/index.js" }
+  ]
+}
