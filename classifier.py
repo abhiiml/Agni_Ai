@@ -216,8 +216,16 @@ def classify_anomalies(
         e1 = 0.50 * prox + 0.30 * persist + 0.20 * heat
 
         # Rules in strict precedence order
-        # FR-CLS-01: Class 1
-        is_class1 = (proximity_m is not None and proximity_m <= 1500.0) and (e1 >= cfg.class1_evidence_min)
+        # FR-CLS-01: Class 1 (Industrial Flare / Heavy Industrial Heat Source)
+        # Sourced from either:
+        # A) Spatial proximity to known industrial infrastructure footprint (within 2000m with evidence)
+        # B) Temporal persistence (>= 3 observation days at identical snapped pixel - hallmark of fixed flare stack)
+        is_near_plant = (proximity_m is not None and proximity_m <= 2000.0) and (e1 >= cfg.class1_evidence_min)
+        is_persistent_flare = (distinct_days >= 3 and (frp_mw >= 1.0 or bt_k >= 315.0))
+        is_class1 = is_near_plant or is_persistent_flare
+
+        if is_class1 and not industry_name:
+            industry_name = "Persistent Industrial Flare / Heat Source"
 
         # FR-CLS-02: Class 2
         is_class2 = not is_class1 and (
@@ -227,7 +235,8 @@ def classify_anomalies(
         # FR-CLS-03: Class 3
         if is_class1:
             klass = 1
-            conf = min(1.0, max(0.0, e1))
+            flare_evidence = 0.50 * persist + 0.30 * prox + 0.20 * heat
+            conf = min(0.98, max(0.65, flare_evidence if is_near_plant else (0.60 + 0.25 * persist + 0.15 * heat)))
         elif is_class2:
             klass = 2
             conf = min(0.95, max(0.0, 0.45 + 0.35 * heat + 0.20 * (1.0 - persist)))

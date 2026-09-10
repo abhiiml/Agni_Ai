@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  agni-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agni_ai_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - MAP_KEY=${MAP_KEY}
+      - AOI=${AOI:-68.0,6.0,97.0,37.0}
+      - REFRESH_TTL_MINUTES=15
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

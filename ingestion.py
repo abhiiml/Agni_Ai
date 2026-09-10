@@ -36,25 +36,165 @@ class IngestionError(Exception):
     pass
 
 
-# Canonical industrial sites across the India subcontinent for offline demo mode
-DEMO_INDUSTRIAL_PLANTS = [
+# Comprehensive National Industrial Infrastructure Registry across the India subcontinent
+# Covering major refineries, petrochemical zones, steel plants, power hubs, and LNG/flare sites
+NATIONAL_INDUSTRIAL_REGISTRY = [
+    # --- Gujarat Petrochem & Refining Corridor ---
     {
-        "name": "Jamnagar Petrochem Hub (demo)",
-        "minx": 69.930, "miny": 22.290, "maxx": 69.995, "maxy": 22.350,
+        "name": "Reliance Jamnagar Refinery Complex",
+        "minx": 69.820, "miny": 22.280, "maxx": 69.995, "maxy": 22.380,
     },
     {
-        "name": "Dahej PCPIR Zone (demo)",
-        "minx": 72.700, "miny": 21.650, "maxx": 72.830, "maxy": 21.720,
+        "name": "Nayara Energy (Vadinar) Refinery",
+        "minx": 69.660, "miny": 22.370, "maxx": 69.760, "maxy": 22.460,
     },
     {
-        "name": "Paradip Refinery Hub (demo)",
-        "minx": 86.550, "miny": 20.180, "maxx": 86.660, "maxy": 20.300,
+        "name": "Hazira Industrial Belt (AM/NS Steel, Reliance, ONGC, Shell LNG)",
+        "minx": 72.600, "miny": 21.070, "maxx": 72.720, "maxy": 21.180,
     },
     {
-        "name": "Visakhapatnam Industrial Belt (demo)",
-        "minx": 83.250, "miny": 17.660, "maxx": 83.320, "maxy": 17.720,
+        "name": "Dahej PCPIR & OPaL Petrochemical Zone",
+        "minx": 72.520, "miny": 21.650, "maxx": 72.830, "maxy": 21.750,
     },
+    {
+        "name": "Mundra Industrial & Power Hub (Adani Power & Tata UMPP)",
+        "minx": 69.650, "miny": 22.750, "maxx": 69.850, "maxy": 22.960,
+    },
+    {
+        "name": "Koyali Refinery & Vadodara Petrochem Complex (IOCL)",
+        "minx": 73.100, "miny": 22.340, "maxx": 73.200, "maxy": 22.420,
+    },
+    {
+        "name": "Ankleshwar & Jhagadia GIDC Chemical Belt",
+        "minx": 72.950, "miny": 21.600, "maxx": 73.150, "maxy": 21.750,
+    },
+    {
+        "name": "Mehsana-Kalol ONGC Oil & Gas Fields",
+        "minx": 72.350, "miny": 23.400, "maxx": 72.550, "maxy": 23.650,
+    },
+    # --- Odisha & Eastern Steel / Mining Corridor ---
+    {
+        "name": "Jharsuguda Industrial Complex (Vedanta Aluminium & Power)",
+        "minx": 83.800, "miny": 21.700, "maxx": 84.100, "maxy": 21.900,
+    },
+    {
+        "name": "Angul Industrial Belt (Jindal Steel & Power JSPL, NTPC)",
+        "minx": 84.950, "miny": 20.750, "maxx": 85.250, "maxy": 20.950,
+    },
+    {
+        "name": "Paradip IOCL Refinery & Fertilizer Hub",
+        "minx": 86.550, "miny": 20.180, "maxx": 86.720, "maxy": 20.320,
+    },
+    {
+        "name": "Rourkela Steel Plant (SAIL)",
+        "minx": 84.800, "miny": 22.200, "maxx": 84.920, "maxy": 22.280,
+    },
+    {
+        "name": "Talcher Super Thermal Power & Coal Basin (NTPC)",
+        "minx": 85.150, "miny": 20.900, "maxx": 85.280, "maxy": 20.980,
+    },
+    # --- Jharkhand Steel & Heavy Industry ---
+    {
+        "name": "Tata Steel Jamshedpur Works",
+        "minx": 86.150, "miny": 22.750, "maxx": 86.250, "maxy": 22.850,
+    },
+    {
+        "name": "Bokaro Steel Plant (SAIL)",
+        "minx": 85.950, "miny": 23.600, "maxx": 86.100, "maxy": 23.720,
+    },
+    # --- Chhattisgarh Heavy Industry & Power ---
+    {
+        "name": "Bhilai Steel Plant (SAIL)",
+        "minx": 81.350, "miny": 21.160, "maxx": 81.450, "maxy": 21.240,
+    },
+    {
+        "name": "Korba Super Thermal & BALCO Aluminium Complex",
+        "minx": 82.650, "miny": 22.300, "maxx": 82.800, "maxy": 22.450,
+    },
+    # --- West Bengal Industrial Corridor ---
+    {
+        "name": "Haldia Petrochemicals & IOCL Refinery",
+        "minx": 88.050, "miny": 22.000, "maxx": 88.180, "maxy": 22.120,
+    },
+    {
+        "name": "Durgapur & IISCO Burnpur Steel Plants (SAIL)",
+        "minx": 86.900, "miny": 23.450, "maxx": 87.350, "maxy": 23.550,
+    },
+    # --- Northern Refining & Power Hubs ---
+    {
+        "name": "Panipat Refinery & Petrochemical Complex (IOCL)",
+        "minx": 76.900, "miny": 29.400, "maxx": 77.050, "maxy": 29.520,
+    },
+    {
+        "name": "Mathura Refinery (IOCL)",
+        "minx": 77.650, "miny": 27.400, "maxx": 77.750, "maxy": 27.500,
+    },
+    {
+        "name": "HMEL Guru Gobind Singh Refinery Bathinda",
+        "minx": 74.900, "miny": 30.100, "maxx": 75.050, "maxy": 30.200,
+    },
+    {
+        "name": "Singrauli & Sonbhadra Energy Corridor (NTPC Vindhyachal/Rihand)",
+        "minx": 82.600, "miny": 24.050, "maxx": 82.850, "maxy": 24.250,
+    },
+    # --- Central & Western Refining / Power ---
+    {
+        "name": "Bina Refinery (BPCL)",
+        "minx": 78.150, "miny": 24.150, "maxx": 78.250, "maxy": 24.250,
+    },
+    {
+        "name": "Mumbai Trombay-Mahul Petrochem Corridor (BPCL, HPCL, RCF)",
+        "minx": 72.880, "miny": 19.000, "maxx": 72.930, "maxy": 19.050,
+    },
+    {
+        "name": "Chandrapur Super Thermal Power Station (Mahagenco)",
+        "minx": 79.250, "miny": 19.950, "maxx": 79.350, "maxy": 20.050,
+    },
+    # --- Southern Industrial & Refining Belts ---
+    {
+        "name": "Visakhapatnam Steel RINL & HPCL Refinery",
+        "minx": 83.150, "miny": 17.600, "maxx": 83.350, "maxy": 17.750,
+    },
+    {
+        "name": "JSW Vijayanagar Steel Works (Toranagallu, Bellary)",
+        "minx": 76.600, "miny": 15.150, "maxx": 76.750, "maxy": 15.250,
+    },
+    {
+        "name": "Ramagundam NTPC Super Thermal Power & RFCL Fertilizer",
+        "minx": 79.400, "miny": 18.720, "maxx": 79.550, "maxy": 18.820,
+    },
+    {
+        "name": "Manali Petrochem & CPCL Refinery (Chennai)",
+        "minx": 80.250, "miny": 13.150, "maxx": 80.350, "maxy": 13.250,
+    },
+    {
+        "name": "Mangalore Refinery and Petrochemicals (MRPL)",
+        "minx": 74.800, "miny": 12.950, "maxx": 74.900, "maxy": 13.050,
+    },
+    {
+        "name": "Kochi BPCL Refinery Complex (Ambalamugal)",
+        "minx": 76.330, "miny": 9.950, "maxx": 76.400, "maxy": 10.020,
+    },
+    {
+        "name": "Tuticorin Thermal Power & Chemical Belt",
+        "minx": 78.100, "miny": 8.700, "maxx": 78.200, "maxy": 8.820,
+    },
+    # --- Rajasthan & North-East Oil/Gas Fields ---
+    {
+        "name": "Barmer Cairn Mangala Oil Field & HPCL Refinery",
+        "minx": 71.200, "miny": 25.800, "maxx": 71.400, "maxy": 26.050,
+    },
+    {
+        "name": "Assam Oil Refining Corridor (Digboi, Numaligarh, Bongaigaon)",
+        "minx": 90.500, "miny": 26.450, "maxx": 95.700, "maxy": 27.400,
+    },
+    {
+        "name": "Krishna-Godavari Basin Gas Processing (Gadimoga / Mallavaram)",
+        "minx": 82.250, "miny": 16.700, "maxx": 82.400, "maxy": 16.850,
+    }
 ]
+
+DEMO_INDUSTRIAL_PLANTS = NATIONAL_INDUSTRIAL_REGISTRY
 
 
 def fetch_firms_nrt(
@@ -224,13 +364,19 @@ def fetch_osm_industrial_polygons(
     """
     FR-ING-04, FR-ING-06:
     Constructs Overpass QL query and returns parsed polygon objects with name tags.
+    Merges dynamic Overpass footprints with the National Industrial Infrastructure Registry.
     """
+    base_registry = [dict(p) for p in NATIONAL_INDUSTRIAL_REGISTRY]
     if cfg.demo_mode:
-        return [dict(p) for p in DEMO_INDUSTRIAL_PLANTS]
+        return base_registry
 
     s, w, n, e = bbox_swne
+    # Guard against querying the entire subcontinent at once (Overpass timeout on large areas)
+    if abs(n - s) > 3.0 or abs(e - w) > 3.0:
+        return base_registry
+
     query = f"""
-    [out:json][timeout:60];
+    [out:json][timeout:30];
     (
       way["industrial"]({s},{w},{n},{e});
       way["landuse"="industrial"]({s},{w},{n},{e});
@@ -251,7 +397,7 @@ def fetch_osm_industrial_polygons(
                 cfg.overpass_api_url,
                 data={"data": query},
                 headers={"User-Agent": "AGNI-AI/1.0 (SIH PS 26162 NTRO)"},
-                timeout=60,
+                timeout=30,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -262,7 +408,7 @@ def fetch_osm_industrial_polygons(
                 data=post_data,
                 headers={"User-Agent": "AGNI-AI/1.0 (SIH PS 26162 NTRO)"},
             )
-            with urllib.request.urlopen(req, timeout=60) as response:
+            with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     data = json.loads(response.read().decode("utf-8"))
 
@@ -284,11 +430,11 @@ def fetch_osm_industrial_polygons(
                         "maxy": max(pt[1] for pt in coords),
                     })
             if polys:
-                return polys
+                return polys + base_registry
     except Exception:
         pass
 
-    return [dict(p) for p in DEMO_INDUSTRIAL_PLANTS]
+    return base_registry
 
 
 def generate_synthetic_anomalies(window_days: int = 5) -> List[Dict[str, Any]]:

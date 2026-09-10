@@ -13,6 +13,8 @@ Provides:
 
 from __future__ import annotations
 
+import csv
+import io
 import os
 import threading
 import time
@@ -21,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from classifier import classify_anomalies
@@ -97,6 +99,18 @@ def run_pipeline() -> bool:
 
 # Initial boot pipeline execution
 run_pipeline()
+
+def _background_scheduler_loop():
+    interval_s = getattr(CONFIG, "refresh_ttl_minutes", 15) * 60
+    while True:
+        time.sleep(interval_s)
+        try:
+            run_pipeline()
+        except Exception:
+            pass
+
+_scheduler_thread = threading.Thread(target=_background_scheduler_loop, daemon=True)
+_scheduler_thread.start()
 
 
 # -----------------------------------------------------------------------------
@@ -255,6 +269,164 @@ def get_thermal_anomalies(
     ]
 
     return {"type": "FeatureCollection", "features": features}
+
+
+@app.get("/api/v1/export/csv")
+def export_csv(
+    date_from: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    classification: Optional[str] = Query(None, description="Comma-separated class IDs (1,2,3)"),
+    min_frp: Optional[float] = Query(None, description="Minimum Fire Radiative Power (MW)"),
+):
+    """
+    Exports filtered thermal anomaly records as a downloadable CSV file.
+    """
+    with _cache_lock:
+        if not _state["anomalies"] and _state["status"] == "initializing":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Data layer not ready yet.",
+            )
+        records = list(_state["anomalies"])
+
+    if date_from:
+        records = [r for r in records if r["acq_date_utc"][:10] >= date_from]
+    if date_to:
+        records = [r for r in records if r["acq_date_utc"][:10] <= date_to]
+    if classification:
+        allowed = {int(c.strip()) for c in classification.split(",") if c.strip().isdigit()}
+        records = [r for r in records if r["class"] in allowed]
+    if min_frp is not None:
+        records = [r for r in records if r["frp_mw"] >= min_frp]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "acq_date_utc", "latitude", "longitude", "class", "class_label",
+        "frp_mw", "brightness_temp_k", "confidence_pct", "industry_name",
+        "persistence_days", "persistence_score", "satellite", "instrument", "source"
+    ])
+
+    for r in records:
+        writer.writerow([
+            r.get("acq_date_utc"),
+            r.get("latitude"),
+            r.get("longitude"),
+            r.get("class"),
+            r.get("class_label"),
+            r.get("frp_mw"),
+            r.get("brightness_temp_k"),
+            r.get("confidence_pct"),
+            r.get("industry_name") or "",
+            r.get("persistence_days"),
+            r.get("persistence_score"),
+            r.get("satellite"),
+            r.get("instrument"),
+            r.get("source"),
+        ])
+
+    output.seek(0)
+    filename = f"agni_thermal_anomalies_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/v1/export/geojson")
+def export_geojson(
+    date_from: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    classification: Optional[str] = Query(None, description="Comma-separated class IDs (1,2,3)"),
+    min_frp: Optional[float] = Query(None, description="Minimum Fire Radiative Power (MW)"),
+):
+    """
+    Exports filtered thermal anomalies as a downloadable RFC 7946 GeoJSON file.
+    """
+    geojson = get_thermal_anomalies(date_from, date_to, classification, min_frp, max_results=10000)
+    import json
+    content = json.dumps(geojson, indent=2)
+    filename = f"agni_thermal_anomalies_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.geojson"
+    return Response(
+        content=content,
+        media_type="application/geo+json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/v1/export/kml")
+def export_kml(
+    date_from: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    classification: Optional[str] = Query(None, description="Comma-separated class IDs (1,2,3)"),
+    min_frp: Optional[float] = Query(None, description="Minimum Fire Radiative Power (MW)"),
+):
+    """
+    Exports filtered thermal anomalies as a downloadable KML file for Google Earth / ArcGIS / QGIS.
+    """
+    geojson = get_thermal_anomalies(date_from, date_to, classification, min_frp, max_results=10000)
+    features = geojson.get("features", [])
+
+    kml = ['<?xml version="1.0" encoding="UTF-8"?>']
+    kml.append('<kml xmlns="http://www.opengis.net/kml/2.2">')
+    kml.append('<Document>')
+    kml.append('<name>AGNI-AI Thermal Anomalies</name>')
+
+    for feat in features:
+        props = feat.get("properties", {})
+        coords = feat.get("geometry", {}).get("coordinates", [0, 0])
+        name = props.get("industry_name") or props.get("class_label") or "Thermal Anomaly"
+        kml.append('  <Placemark>')
+        kml.append(f'    <name>{name}</name>')
+        kml.append(f'    <description>FRP: {props.get("frp_mw")} MW | Class: {props.get("class_label")} | Date: {props.get("acq_date_utc")}</description>')
+        kml.append('    <Point>')
+        kml.append(f'      <coordinates>{coords[0]},{coords[1]},0</coordinates>')
+        kml.append('    </Point>')
+        kml.append('  </Placemark>')
+
+    kml.append('</Document>')
+    kml.append('</kml>')
+
+    content = "\n".join(kml)
+    filename = f"agni_thermal_anomalies_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.kml"
+    return Response(
+        content=content,
+        media_type="application/vnd.google-earth.kml+xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/v1/alerts/summary")
+def get_alerts_summary():
+    """
+    Returns live alert notifications for severe flares (>25 MW) and high-confidence events.
+    """
+    with _cache_lock:
+        df = list(_state["anomalies"])
+
+    severe_flares = [d for d in df if d["class"] == 1 and d["frp_mw"] >= 25.0]
+    persistent_hotspots = [d for d in df if d["persistence_days"] >= 3]
+    high_conf_wildfires = [d for d in df if d["class"] == 2 and d["confidence_pct"] >= 80.0]
+
+    return {
+        "alert_level": "HIGH" if (severe_flares or high_conf_wildfires) else "NORMAL",
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "severe_flares_count": len(severe_flares),
+        "persistent_hotspots_count": len(persistent_hotspots),
+        "high_conf_wildfires_count": len(high_conf_wildfires),
+        "top_severe_flares": [
+            {
+                "facility": d.get("industry_name"),
+                "frp_mw": d.get("frp_mw"),
+                "lat": d.get("latitude"),
+                "lon": d.get("longitude"),
+                "date": d.get("acq_date_utc"),
+                "persistence_days": d.get("persistence_days"),
+            }
+            for d in sorted(severe_flares, key=lambda x: x["frp_mw"], reverse=True)[:10]
+        ],
+    }
 
 
 @app.post("/api/v1/refresh", status_code=status.HTTP_202_ACCEPTED)

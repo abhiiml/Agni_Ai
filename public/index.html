@@ -177,7 +177,10 @@
           <input type="date" id="dto" />
         </div>
       </div>
-      <button id="refresh" type="button">↻ Refresh data</button>
+      <div style="display:flex; gap:8px; margin-top:10px">
+        <button id="refresh" type="button" style="flex:1">↻ Refresh data</button>
+        <button id="export-csv" type="button" style="flex:1; background:#2b5bd7; color:#fff">📥 Export CSV</button>
+      </div>
       <div id="status"></div>
     </div>
 
@@ -784,6 +787,18 @@ function bindFilters() {
       } finally {
         btn.disabled = false;
       }
+    });
+  }
+
+  if ($("export-csv")) {
+    $("export-csv").addEventListener("click", () => {
+      const params = new URLSearchParams();
+      if (state.dateFrom) params.set("date_from", state.dateFrom);
+      if (state.dateTo) params.set("date_to", state.dateTo);
+      if (state.visible.size < 3) params.set("classification", Array.from(state.visible).join(","));
+      if (state.minFrp > 0) params.set("min_frp", state.minFrp);
+      const url = `${API_BASE_URL}/api/v1/export/csv?${params.toString()}`;
+      window.open(url, "_blank");
     });
   }
 }

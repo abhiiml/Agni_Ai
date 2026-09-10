@@ -13,6 +13,29 @@ from dataclasses import dataclass
 from typing import Tuple
 
 
+# ---------------------------------------------------------------------------
+# Native .env loader (no third-party dependency required)
+# ---------------------------------------------------------------------------
+def _load_dotenv(path: str = ".env") -> None:
+    """Read a .env file and inject non-empty KEY=VALUE pairs into os.environ."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    if not os.path.isfile(env_path):
+        return
+    with open(env_path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("\"'")
+            if key and value:
+                os.environ.setdefault(key, value)
+
+
+_load_dotenv()
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """Application runtime configuration backed by environment variables."""
@@ -20,6 +43,11 @@ class AppConfig:
     # Credentials (NFR-SEC-01: isolated, never logged or leaked to client)
     map_key: str = os.getenv("MAP_KEY", "").strip()
     maptiler_key: str = os.getenv("MAPTILER_KEY", "").strip()
+
+    # Alerting Credentials & Hooks
+    alert_webhook_url: str = os.getenv("ALERT_WEBHOOK_URL", "").strip()
+    telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
     # External Provider Endpoints (§4.1, §4.2)
     firms_base_url: str = os.getenv(

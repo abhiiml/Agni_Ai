@@ -1,0 +1,42 @@
+name: AGNI-AI CI/CD & Production Build Verification
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  verify:
+    name: Build & Test AGNI-AI Service
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Backend Syntax & Import Verification
+        run: |
+          python -c "import main; print('FastAPI main module loaded cleanly.')"
+          python -c "import classifier; print('Classifier module verified.')"
+
+      - name: Build Docker Container
+        run: |
+          docker build -t agni-ai:latest .
+
+      - name: Verify Docker Container Health
+        run: |
+          docker run -d --name agni_test -p 8000:8000 agni-ai:latest
+          sleep 5
+          curl -f http://localhost:8000/healthz || exit 1
+          docker stop agni_test

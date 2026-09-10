@@ -7,11 +7,29 @@ import fs from "fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load local .env if present (zero-dependency, mirrors config_keys.py)
+const envPath = path.resolve(__dirname, ".env");
+if (fs.existsSync(envPath)) {
+  try {
+    const lines = fs.readFileSync(envPath, "utf-8").split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+      const idx = trimmed.indexOf("=");
+      const key = trimmed.slice(0, idx).trim();
+      const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
+      if (key && !(key in process.env)) {
+        process.env[key] = val;
+      }
+    }
+  } catch (_) {}
+}
+
 // ==============================================================================
 // Configuration
 // ==============================================================================
-const PORT = 3000;
-const HOST = "0.0.0.0";
+const PORT = parseInt(process.env.PORT || process.env.APP_PORT || "3000", 10);
+const HOST = process.env.APP_HOST || "0.0.0.0";
 
 const AOI = process.env.AOI || "68.0,6.0,97.0,37.0";
 const MAP_KEY = (process.env.MAP_KEY || "").trim();
@@ -39,13 +57,62 @@ const BASEMAP_ATTRIBUTION =
   "Tiles &copy; Esri &mdash; Esri, Maxar, Earthstar Geographics, USGS &middot; &copy; OpenStreetMap contributors";
 
 // ==============================================================================
-// Industrial Plant Knowledge Base (India Subcontinent)
+// Comprehensive National Industrial Infrastructure Registry (India Subcontinent)
 // ==============================================================================
 const PLANTS = [
-  { minx: 69.930, miny: 22.290, maxx: 69.995, maxy: 22.350, name: "Jamnagar Petrochem Hub (demo)" },
-  { minx: 72.700, miny: 21.650, maxx: 72.830, maxy: 21.720, name: "Dahej PCPIR Zone (demo)" },
-  { minx: 86.550, miny: 20.180, maxx: 86.660, maxy: 20.300, name: "Paradip Refinery Hub (demo)" },
-  { minx: 83.250, miny: 17.660, maxx: 83.320, maxy: 17.720, name: "Visakhapatnam Industrial Belt (demo)" },
+  // --- Gujarat Petrochem & Refining Corridor ---
+  { minx: 69.820, miny: 22.280, maxx: 69.995, maxy: 22.380, name: "Reliance Jamnagar Refinery Complex" },
+  { minx: 69.660, miny: 22.370, maxx: 69.760, maxy: 22.460, name: "Nayara Energy (Vadinar) Refinery" },
+  { minx: 72.600, miny: 21.070, maxx: 72.720, maxy: 21.180, name: "Hazira Industrial Belt (AM/NS Steel, Reliance, ONGC, Shell LNG)" },
+  { minx: 72.520, miny: 21.650, maxx: 72.830, maxy: 21.750, name: "Dahej PCPIR & OPaL Petrochemical Zone" },
+  { minx: 69.650, miny: 22.750, maxx: 69.850, maxy: 22.960, name: "Mundra Industrial & Power Hub (Adani Power & Tata UMPP)" },
+  { minx: 73.100, miny: 22.340, maxx: 73.200, maxy: 22.420, name: "Koyali Refinery & Vadodara Petrochem Complex (IOCL)" },
+  { minx: 72.950, miny: 21.600, maxx: 73.150, maxy: 21.750, name: "Ankleshwar & Jhagadia GIDC Chemical Belt" },
+  { minx: 72.350, miny: 23.400, maxx: 72.550, maxy: 23.650, name: "Mehsana-Kalol ONGC Oil & Gas Fields" },
+
+  // --- Odisha & Eastern Steel / Mining Corridor ---
+  { minx: 83.800, miny: 21.700, maxx: 84.100, maxy: 21.900, name: "Jharsuguda Industrial Complex (Vedanta Aluminium & Power)" },
+  { minx: 84.950, miny: 20.750, maxx: 85.250, maxy: 20.950, name: "Angul Industrial Belt (Jindal Steel & Power JSPL, NTPC)" },
+  { minx: 86.550, miny: 20.180, maxx: 86.720, maxy: 20.320, name: "Paradip IOCL Refinery & Fertilizer Hub" },
+  { minx: 84.800, miny: 22.200, maxx: 84.920, maxy: 22.280, name: "Rourkela Steel Plant (SAIL)" },
+  { minx: 85.150, miny: 20.900, maxx: 85.280, maxy: 20.980, name: "Talcher Super Thermal Power & Coal Basin (NTPC)" },
+
+  // --- Jharkhand Steel & Heavy Industry ---
+  { minx: 86.150, miny: 22.750, maxx: 86.250, maxy: 22.850, name: "Tata Steel Jamshedpur Works" },
+  { minx: 85.950, miny: 23.600, maxx: 86.100, maxy: 23.720, name: "Bokaro Steel Plant (SAIL)" },
+
+  // --- Chhattisgarh Heavy Industry & Power ---
+  { minx: 81.350, miny: 21.160, maxx: 81.450, maxy: 21.240, name: "Bhilai Steel Plant (SAIL)" },
+  { minx: 82.650, miny: 22.300, maxx: 82.800, maxy: 22.450, name: "Korba Super Thermal & BALCO Aluminium Complex" },
+
+  // --- West Bengal Industrial Corridor ---
+  { minx: 88.050, miny: 22.000, maxx: 88.180, maxy: 22.120, name: "Haldia Petrochemicals & IOCL Refinery" },
+  { minx: 86.900, miny: 23.450, maxx: 87.350, maxy: 23.550, name: "Durgapur & IISCO Burnpur Steel Plants (SAIL)" },
+
+  // --- Northern Refining & Power Hubs ---
+  { minx: 76.900, miny: 29.400, maxx: 77.050, maxy: 29.520, name: "Panipat Refinery & Petrochemical Complex (IOCL)" },
+  { minx: 77.650, miny: 27.400, maxx: 77.750, maxy: 27.500, name: "Mathura Refinery (IOCL)" },
+  { minx: 74.900, miny: 30.100, maxx: 75.050, maxy: 30.200, name: "HMEL Guru Gobind Singh Refinery Bathinda" },
+  { minx: 82.600, miny: 24.050, maxx: 82.850, maxy: 24.250, name: "Singrauli & Sonbhadra Energy Corridor (NTPC Vindhyachal/Rihand)" },
+
+  // --- Central & Western Refining / Power ---
+  { minx: 78.150, miny: 24.150, maxx: 78.250, maxy: 24.250, name: "Bina Refinery (BPCL)" },
+  { minx: 72.880, miny: 19.000, maxx: 72.930, maxy: 19.050, name: "Mumbai Trombay-Mahul Petrochem Corridor (BPCL, HPCL, RCF)" },
+  { minx: 79.250, miny: 19.950, maxx: 79.350, maxy: 20.050, name: "Chandrapur Super Thermal Power Station (Mahagenco)" },
+
+  // --- Southern Industrial & Refining Belts ---
+  { minx: 83.150, miny: 17.600, maxx: 83.350, maxy: 17.750, name: "Visakhapatnam Steel RINL & HPCL Refinery" },
+  { minx: 76.600, miny: 15.150, maxx: 76.750, maxy: 15.250, name: "JSW Vijayanagar Steel Works (Toranagallu, Bellary)" },
+  { minx: 79.400, miny: 18.720, maxx: 79.550, maxy: 18.820, name: "Ramagundam NTPC Super Thermal Power & RFCL Fertilizer" },
+  { minx: 80.250, miny: 13.150, maxx: 80.350, maxy: 13.250, name: "Manali Petrochem & CPCL Refinery (Chennai)" },
+  { minx: 74.800, miny: 12.950, maxx: 74.900, maxy: 13.050, name: "Mangalore Refinery and Petrochemicals (MRPL)" },
+  { minx: 76.330, miny: 9.950, maxx: 76.400, maxy: 10.020, name: "Kochi BPCL Refinery Complex (Ambalamugal)" },
+  { minx: 78.100, miny: 8.700, maxx: 78.200, maxy: 8.820, name: "Tuticorin Thermal Power & Chemical Belt" },
+
+  // --- Rajasthan & North-East Oil/Gas Fields ---
+  { minx: 71.200, miny: 25.800, maxx: 71.400, maxy: 26.050, name: "Barmer Cairn Mangala Oil Field & HPCL Refinery" },
+  { minx: 90.500, miny: 26.450, maxx: 95.700, maxy: 27.400, name: "Assam Oil Refining Corridor (Digboi, Numaligarh, Bongaigaon)" },
+  { minx: 82.250, miny: 16.700, maxx: 82.400, maxy: 16.850, name: "Krishna-Godavari Basin Gas Processing (Gadimoga / Mallavaram)" }
 ];
 
 const SAT_TO_SOURCE = {
@@ -479,9 +546,14 @@ function classifyDataset(rawRows, windowDays = PERSISTENCE_WINDOW_DAYS, industri
     // E1 industrial evidence
     const e1 = 0.5 * prox + 0.3 * persist + 0.2 * heat;
 
-    // Rule FR-CLS-01: Class 1
-    const nearIndustry = proximityM != null && proximityM <= 1500.0;
-    const isClass1 = nearIndustry && e1 >= CLASS1_EVIDENCE_MIN;
+    // Rule FR-CLS-01: Class 1 (Industrial Flare / Heavy Industrial Heat Source)
+    const nearIndustry = proximityM != null && proximityM <= 2000.0 && e1 >= CLASS1_EVIDENCE_MIN;
+    const isPersistentFlare = persistenceDays >= 3 && (frpMw >= 1.0 || brightnessTempK >= 315.0);
+    const isClass1 = nearIndustry || isPersistentFlare;
+
+    if (isClass1 && !industryName) {
+      industryName = "Persistent Industrial Flare / Heat Source";
+    }
 
     // Rule FR-CLS-02: Class 2
     const isClass2 = !isClass1 && (frpMw >= WILDFIRE_FRP_MIN_MW || brightnessTempK >= WILDFIRE_BT_MIN_K);
@@ -492,7 +564,8 @@ function classifyDataset(rawRows, windowDays = PERSISTENCE_WINDOW_DAYS, industri
     // Confidence
     let confidence;
     if (isClass1) {
-      confidence = Math.min(1.0, Math.max(0.0, e1));
+      const flareEvidence = 0.5 * persist + 0.3 * prox + 0.2 * heat;
+      confidence = Math.min(0.98, Math.max(0.65, nearIndustry ? flareEvidence : (0.60 + 0.25 * persist + 0.15 * heat)));
     } else if (isClass2) {
       confidence = Math.min(0.95, Math.max(0.0, 0.45 + 0.35 * heat + 0.2 * (1.0 - persist)));
     } else {
@@ -822,6 +895,65 @@ app.get("/api/v1/thermal-anomalies", (req, res) => {
   }
 
   res.json(toGeoJson(filtered));
+});
+
+// CSV Export Endpoint
+app.get("/api/v1/export/csv", (req, res) => {
+  if (!state.anomalies.length && state.status === "initializing") {
+    return res.status(503).json({ detail: "Data layer not ready yet." });
+  }
+
+  let records = [...state.anomalies];
+  const { date_from, date_to, classification, min_frp } = req.query;
+
+  if (date_from) {
+    records = records.filter(r => (r.acq_date_utc || "").slice(0, 10) >= date_from);
+  }
+  if (date_to) {
+    records = records.filter(r => (r.acq_date_utc || "").slice(0, 10) <= date_to);
+  }
+  if (classification) {
+    const allowed = new Set(classification.split(",").map(c => parseInt(c.trim(), 10)).filter(Boolean));
+    records = records.filter(r => allowed.has(r.class));
+  }
+  if (min_frp !== undefined && min_frp !== "") {
+    const minVal = parseFloat(min_frp);
+    if (!isNaN(minVal)) {
+      records = records.filter(r => (r.frp_mw || 0) >= minVal);
+    }
+  }
+
+  const headers = [
+    "acq_date_utc", "latitude", "longitude", "class", "class_label",
+    "frp_mw", "brightness_temp_k", "confidence_pct", "industry_name",
+    "persistence_days", "persistence_score", "satellite", "instrument", "source"
+  ];
+
+  let csvContent = headers.join(",") + "\n";
+  for (const r of records) {
+    const row = [
+      `"${r.acq_date_utc || ""}"`,
+      r.latitude,
+      r.longitude,
+      r.class,
+      `"${(r.class_label || "").replace(/"/g, '""')}"`,
+      r.frp_mw,
+      r.brightness_temp_k,
+      r.confidence_pct,
+      `"${(r.industry_name || "").replace(/"/g, '""')}"`,
+      r.persistence_days,
+      r.persistence_score,
+      `"${r.satellite || ""}"`,
+      `"${r.instrument || ""}"`,
+      `"${r.source || ""}"`
+    ];
+    csvContent += row.join(",") + "\n";
+  }
+
+  const filename = `agni_thermal_anomalies_${new Date().toISOString().replace(/[:-]/g, "").slice(0, 15)}.csv`;
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.status(200).send(csvContent);
 });
 
 // Refresh Endpoint (FR-API-04)
